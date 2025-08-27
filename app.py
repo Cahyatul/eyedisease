@@ -47,8 +47,8 @@ class ModifiedLeNet(nn.Module):
 # Load model
 @st.cache_resource
 def load_lenet():
-    model = ModifiedLeNet(num_classes=4)
-    model.load_state_dict(torch.load("lenet_model.pth", map_location=torch.device('cpu')))
+    model = LeNet(num_classes=4)
+    model.load_state_dict(torch.load("LeNet_model.pth", map_location=torch.device('cpu')))
     model.eval()
     return model
 
