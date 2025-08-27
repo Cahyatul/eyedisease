@@ -1,48 +1,82 @@
 import streamlit as st
-import numpy as np
-from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing import image
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torchvision import transforms
 from PIL import Image
+import numpy as np
 
-# Load Model (pastikan file lenet_model.h5 sudah ada di repo)
+# Definisi ulang ModifiedLeNet (harus sama persis)
+class ModifiedLeNet(nn.Module):
+    def __init__(self, num_classes=4):
+        super(ModifiedLeNet, self).__init__()
+        self.conv1 = nn.Conv2d(3, 6, kernel_size=5)
+        self.conv2 = nn.Conv2d(6, 16, kernel_size=5)
+        self.conv3 = nn.Conv2d(16, 32, kernel_size=3)
+
+        self.dropout_conv = nn.Dropout2d(0.25)
+        self.dropout_fc = nn.Dropout(0.5)
+
+        self.fc1 = nn.Linear(32 * 29 * 29, 120)
+        self.fc2 = nn.Linear(120, 84)
+        self.fc3 = nn.Linear(84, num_classes)
+
+    def forward(self, x):
+        x = F.relu(self.conv1(x))
+        x = F.max_pool2d(x, 2)
+        x = self.dropout_conv(x)
+
+        x = F.relu(self.conv2(x))
+        x = F.max_pool2d(x, 2)
+        x = self.dropout_conv(x)
+
+        x = F.relu(self.conv3(x))
+        x = F.max_pool2d(x, 2)
+        x = self.dropout_conv(x)
+
+        x = x.view(-1, 32 * 29 * 29)
+        x = F.relu(self.fc1(x))
+        x = self.dropout_fc(x)
+
+        x = F.relu(self.fc2(x))
+        x = self.dropout_fc(x)
+
+        x = self.fc3(x)
+        return x
+
+# Load model
 @st.cache_resource
 def load_lenet():
-    model = load_model("lenet_model.h5")
+    model = ModifiedLeNet(num_classes=4)
+    model.load_state_dict(torch.load("lenet_model.pth", map_location=torch.device('cpu')))
+    model.eval()
     return model
 
 model = load_lenet()
 
-# Kelas yang diprediksi
 classes = ["Normal", "Diabetic Retinopathy", "Cataract", "Glaucoma"]
 
-# Judul aplikasi
-st.title("🔍 Prediksi Penyakit Mata dari Citra Fundus")
-st.write("Upload citra fundus (512x512) untuk memprediksi kondisi mata.")
+# Streamlit UI
+st.title("Prediksi Penyakit Mata (LeNet Modifikasi - PyTorch)")
+uploaded_file = st.file_uploader("Upload gambar fundus", type=["jpg", "png", "jpeg"])
 
-# Upload gambar
-uploaded_file = st.file_uploader("Upload gambar fundus", type=["jpg", "jpeg", "png"])
-
-if uploaded_file is not None:
-    # Tampilkan gambar
+if uploaded_file:
     img = Image.open(uploaded_file).convert("RGB")
-    st.image(img, caption="Gambar yang diupload", use_column_width=True)
+    st.image(img, caption="Gambar diupload", use_column_width=True)
 
-    # Preprocessing
-    img = img.resize((128, 128))  # samakan dengan input LeNet modifikasi
-    img_array = image.img_to_array(img)
-    img_array = np.expand_dims(img_array, axis=0)
-    img_array = img_array / 255.0
+    transform = transforms.Compose([
+        transforms.Resize((256, 256)),
+        transforms.ToTensor()
+    ])
 
-    # Prediksi
-    prediction = model.predict(img_array)
-    class_idx = np.argmax(prediction)
-    confidence = np.max(prediction) * 100
+    img_tensor = transform(img).unsqueeze(0)  # tambah batch dim
+    outputs = model(img_tensor)
+    _, predicted = torch.max(outputs, 1)
+    probs = torch.softmax(outputs, dim=1).detach().numpy()
 
-    # Output hasil prediksi
     st.subheader("Hasil Prediksi:")
-    st.success(f"✅ {classes[class_idx]} ({confidence:.2f}%)")
+    st.success(f"{classes[predicted.item()]}")
 
-    # Tampilkan probabilitas semua kelas
     st.subheader("Probabilitas Tiap Kelas:")
-    for i, prob in enumerate(prediction[0]):
-        st.write(f"- {classes[i]} : {prob*100:.2f}%")
+    for i, c in enumerate(classes):
+        st.write(f"{c}: {probs[0][i]*100:.2f}%")
